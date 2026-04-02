@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 logger = logging.getLogger("sync_planning")
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
-PLANNING_API_URL = "https://planning.lacity.org/dcpapi/general/newcases"
+PLANNING_API_URL = "https://planning.lacity.gov/dcpapi/general/newcases"
 
 # Case type prefixes we track
 CASE_TYPES = ["ENV", "EAR", "CPC", "DIR", "VTT", "TT", "ZA"]
@@ -107,7 +107,7 @@ async def main():
         logger.error("DATABASE_URL not set")
         sys.exit(1)
 
-    conn = await asyncpg.connect(DATABASE_URL)
+    conn = await asyncpg.connect(DATABASE_URL, statement_cache_size=0)
     client = httpx.AsyncClient()
 
     run_id = await conn.fetchval(

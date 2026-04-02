@@ -1,5 +1,5 @@
 -- LA Cityscape Database Schema
--- PostgreSQL + PostGIS
+-- PostgreSQL + PostGIS (Supabase)
 
 CREATE EXTENSION IF NOT EXISTS postgis;
 
@@ -11,20 +11,30 @@ CREATE TABLE IF NOT EXISTS permits (
     id                      SERIAL PRIMARY KEY,
     permit_nbr              TEXT UNIQUE NOT NULL,
     primary_address         TEXT,
+    zip_code                TEXT,
+    council_district        TEXT,
+    pin_nbr                 TEXT,
+    apn                     TEXT,
+    zone                    TEXT,
+    area_planning_commission TEXT,
+    community_plan_area     TEXT,
+    neighborhood_council    TEXT,
+    census_tract            TEXT,
+    permit_group            TEXT,
     permit_type             TEXT,
     permit_sub_type         TEXT,
-    issue_date              DATE,
+    use_code                TEXT,
+    use_desc                TEXT,
+    submitted_date          TIMESTAMP,
+    issue_date              TIMESTAMP,
     status_desc             TEXT,
-    valuation               NUMERIC(14,2),
-    zone                    TEXT,
-    council_district        INTEGER,
-    community_plan_area     TEXT,
-    contractor              TEXT,
-    applicant               TEXT,
-    legal_description       TEXT,
-    census_tract            TEXT,
-    source_dataset          TEXT,
-    city                    TEXT DEFAULT 'Los Angeles',
+    status_date             TIMESTAMP,
+    valuation               DOUBLE PRECISION,
+    square_footage          DOUBLE PRECISION,
+    construction            TEXT,
+    work_desc               TEXT,
+    ev                      BOOLEAN DEFAULT FALSE,
+    solar                   BOOLEAN DEFAULT FALSE,
     lat                     DOUBLE PRECISION,
     lon                     DOUBLE PRECISION,
     geom                    GEOMETRY(Point, 4326),
@@ -105,13 +115,15 @@ CREATE INDEX IF NOT EXISTS idx_places_boundary ON places USING GIST (boundary);
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS pipeline_runs (
-    id              SERIAL PRIMARY KEY,
-    pipeline_name   TEXT NOT NULL,
-    started_at      TIMESTAMP DEFAULT NOW(),
-    finished_at     TIMESTAMP,
-    status          TEXT DEFAULT 'running',
-    records_synced  INTEGER DEFAULT 0,
-    error_message   TEXT
+    id                  SERIAL PRIMARY KEY,
+    pipeline            TEXT NOT NULL,
+    started_at          TIMESTAMP DEFAULT NOW(),
+    completed_at        TIMESTAMP,
+    status              TEXT DEFAULT 'running',
+    records_inserted    INTEGER DEFAULT 0,
+    records_updated     INTEGER DEFAULT 0,
+    records_processed   INTEGER DEFAULT 0,
+    error_message       TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_pipeline_name ON pipeline_runs (pipeline_name, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_name ON pipeline_runs (pipeline, started_at DESC);

@@ -18,6 +18,7 @@ async def get_pool() -> asyncpg.Pool:
             min_size=2,
             max_size=10,
             command_timeout=30,
+            statement_cache_size=0,  # Required for Supabase transaction pooler
         )
         logger.info("Database connection pool created")
     return _pool

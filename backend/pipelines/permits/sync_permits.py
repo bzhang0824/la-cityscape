@@ -172,7 +172,7 @@ async def main():
         logger.error("DATABASE_URL not set")
         sys.exit(1)
 
-    conn = await asyncpg.connect(DATABASE_URL)
+    conn = await asyncpg.connect(DATABASE_URL, statement_cache_size=0)
     client = httpx.AsyncClient()
 
     # Record pipeline run
