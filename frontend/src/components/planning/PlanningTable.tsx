@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowUpDown, ArrowUp, ArrowDown, ExternalLink } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import type { PlanningCase } from '@/lib/mock-data';
 
 interface PlanningTableProps {
@@ -25,15 +25,17 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen).trimEnd() + '...';
 }
 
-function getStatus(planningCase: PlanningCase): 'On Hold' | 'Completed' | 'Active' {
-  if (planningCase.on_hold) return 'On Hold';
-  if (planningCase.completed) return 'Completed';
+function getStatus(planningCase: PlanningCase): string {
+  const s = planningCase.status.toLowerCase();
+  if (s.includes('hold')) return 'On Hold';
+  if (s.includes('complete') || s.includes('approved')) return 'Completed';
   return 'Active';
 }
 
 function getStatusValue(planningCase: PlanningCase): number {
-  if (planningCase.on_hold) return 1;
-  if (planningCase.completed) return 2;
+  const status = getStatus(planningCase);
+  if (status === 'On Hold') return 1;
+  if (status === 'Completed') return 2;
   return 0;
 }
 
@@ -125,21 +127,15 @@ export default function PlanningTable({ cases }: PlanningTableProps) {
             const status = getStatus(planningCase);
             return (
               <tr
-                key={planningCase.id}
+                key={planningCase.case_number}
                 className={`border-b border-gray-100 transition-colors ${
                   idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                 } hover:bg-blue-50/60`}
               >
                 <td className="whitespace-nowrap px-4 py-2">
-                  <a
-                    href={planningCase.pdis_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                  >
+                  <span className="font-medium text-blue-600">
                     {planningCase.case_number}
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
+                  </span>
                 </td>
                 <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">
                   {planningCase.address}

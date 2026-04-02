@@ -46,7 +46,7 @@ export default function MapPreview({ className = '' }: MapPreviewProps) {
 
         return (
           <CircleMarker
-            key={permit.id}
+            key={permit.permit_nbr}
             center={[permit.lat, permit.lon]}
             radius={5}
             pathOptions={{

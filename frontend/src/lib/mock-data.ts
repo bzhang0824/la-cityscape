@@ -156,3 +156,37 @@ export const permitTrendData = [
   { month: 'Nov', count: 1920 },
   { month: 'Dec', count: 1560 },
 ];
+
+// Aliases for backward compatibility
+export const mockPermits = permits;
+
+export const PERMIT_TYPES = [
+  'Building',
+  'Electrical',
+  'Plumbing',
+  'Mechanical',
+  'Grading',
+] as const;
+
+export const COUNCIL_DISTRICTS = Array.from({ length: 15 }, (_, i) => String(i + 1));
+
+export const COMMUNITY_PLAN_AREAS = [
+  'Hollywood',
+  'Central City',
+  'Wilshire',
+  'Westwood',
+  'South Los Angeles',
+  'West Los Angeles',
+  'Sherman Oaks',
+  'Silver Lake-Echo Park',
+  'Century City',
+  'Bel Air-Beverly Crest',
+  'Central City North',
+  'Palms-Mar Vista-Del Rey',
+  'Brentwood',
+  'Canoga Park',
+  'Northeast Los Angeles',
+  'Boyle Heights',
+  'Woodland Hills',
+  'West Adams',
+] as const;

@@ -14,10 +14,8 @@ const PermitMap = dynamic(() => import("@/components/map/PermitMap"), {
 
 export default function PermitMapLoader({
   permits,
-  selectedPermit,
 }: {
   permits: Permit[];
-  selectedPermit?: number | null;
 }) {
-  return <PermitMap permits={permits} selectedPermit={selectedPermit} />;
+  return <PermitMap permits={permits} />;
 }

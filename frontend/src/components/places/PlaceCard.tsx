@@ -7,9 +7,8 @@ interface PlaceCardProps {
 }
 
 const typeColors: Record<string, string> = {
-  neighborhood: 'bg-purple-50 text-purple-700',
-  district: 'bg-indigo-50 text-indigo-700',
-  community: 'bg-teal-50 text-teal-700',
+  council_district: 'bg-indigo-50 text-indigo-700',
+  community_plan_area: 'bg-teal-50 text-teal-700',
 };
 
 function getTypeBadgeStyle(placeType: string): string {
@@ -27,9 +26,9 @@ export default function PlaceCard({ place }: PlaceCardProps) {
           {place.name}
         </h3>
         <span
-          className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium ${getTypeBadgeStyle(place.place_type)}`}
+          className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium ${getTypeBadgeStyle(place.type)}`}
         >
-          {place.place_type}
+          {place.type}
         </span>
       </div>
       <div className="mt-3 flex items-center gap-1.5 text-xs text-gray-500">

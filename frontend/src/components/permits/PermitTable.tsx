@@ -41,7 +41,7 @@ const columns: { key: SortField; label: string }[] = [
 export default function PermitTable({ permits }: PermitTableProps) {
   const [sortField, setSortField] = useState<SortField>('issue_date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [highlightedRow, setHighlightedRow] = useState<number | null>(null);
+  const [highlightedRow, setHighlightedRow] = useState<string | null>(null);
 
   function handleSort(field: SortField) {
     if (sortField === field) {
@@ -105,12 +105,12 @@ export default function PermitTable({ permits }: PermitTableProps) {
         <tbody>
           {sorted.map((permit, idx) => (
             <tr
-              key={permit.id}
+              key={permit.permit_nbr}
               className={`border-b border-gray-100 transition-colors cursor-pointer ${
                 idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
-              } ${highlightedRow === permit.id ? 'bg-blue-50' : ''} hover:bg-blue-50/60`}
+              } ${highlightedRow === permit.permit_nbr ? 'bg-blue-50' : ''} hover:bg-blue-50/60`}
               onClick={() =>
-                setHighlightedRow((prev) => (prev === permit.id ? null : permit.id))
+                setHighlightedRow((prev) => (prev === permit.permit_nbr ? null : permit.permit_nbr))
               }
             >
               <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">
