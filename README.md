@@ -1,76 +1,74 @@
 # LA Cityscape
 
-Construction intelligence platform for Los Angeles. Track building permits, planning cases, and development activity across the city with interactive maps and data tools.
+Construction intelligence platform for Los Angeles — track building permits, planning cases, and development activity across LA's neighborhoods and council districts.
 
-## Features
+Modeled on [Chicago Cityscape](https://www.chicagocityscape.com/), built for the LA market.
 
-- **Permits Browser** — Search and filter 38K+ LADBS building permits with an interactive map
-- **Planning Cases** — Browse LA City Planning cases (ENV, CPC, DIR, VTT, TT, ZA, EAR)
-- **Property Reports** — Deep-dive on any LA address: permits, zoning, planning cases
-- **Place Reports** — Area-level views for council districts, community plan areas, neighborhoods
-- **Daily Sync** — Automated pipelines pull fresh data from LADBS and LA City Planning APIs
+## Architecture
+
+```
+la-cityscape/
+├── backend/
+│   ├── api/            # FastAPI REST API
+│   │   ├── main.py     # App entrypoint with 5 routers
+│   │   ├── config.py   # Environment config (Pydantic Settings)
+│   │   ├── database.py # Async PostgreSQL connection pool
+│   │   └── routes/
+│   │       ├── permits.py    # Permit CRUD, filtering, GeoJSON
+│   │       ├── planning.py   # Planning case search + GeoJSON
+│   │       ├── places.py     # Neighborhoods & council districts
+│   │       ├── property.py   # Property lookup by address
+│   │       └── search.py     # Global search across entities
+│   ├── pipelines/
+│   │   ├── permits/
+│   │   │   └── sync_permits.py    # Socrata API sync (LADBS permits)
+│   │   └── planning/
+│   │       └── sync_planning.py   # LA City Planning API sync
+│   ├── schema.sql      # PostgreSQL + PostGIS schema
+│   └── requirements.txt
+├── frontend/           # Next.js 14 (App Router)
+│   ├── src/
+│   │   ├── app/        # 7 routes (/, /permits, /planning, /places, /pricing, etc.)
+│   │   ├── components/ # Map, table, filter, chart components
+│   │   └── lib/        # Mock data, types, utilities
+│   └── ...
+└── .github/workflows/  # GitHub Actions for nightly data sync
+```
+
+## Data Sources
+
+| Source | Dataset | Sync Schedule |
+|--------|---------|---------------|
+| [LADBS Permits (Socrata)](https://data.lacity.org/resource/pi9x-tg5x.json) | Building, electrical, mechanical, plumbing permits | Daily 4am UTC |
+| [LADBS Commercial Permits](https://data.lacity.org/resource/vdg9-hy7c.json) | Commercial/industrial permits | Daily 4am UTC |
+| [LA City Planning API](https://planning.lacity.org/dcpapi/general/newcases) | Planning cases, environmental reviews, zone changes | Daily 5am UTC |
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 16, Tailwind CSS, Leaflet, Recharts |
-| Backend | Python 3.12, FastAPI, asyncpg |
-| Database | PostgreSQL + PostGIS |
-| Pipelines | GitHub Actions (daily cron) |
-| Data Sources | LADBS Socrata API, LA City Planning API |
+**Backend:** Python 3.11, FastAPI, asyncpg, PostgreSQL + PostGIS, httpx  
+**Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Leaflet.js, Recharts  
+**Infrastructure:** Neon PostgreSQL, GitHub Actions (cron pipelines), Vercel (frontend)
 
-## Project Structure
-
-```
-├── backend/
-│   ├── schema.sql              # PostgreSQL + PostGIS schema
-│   ├── api/
-│   │   ├── main.py             # FastAPI app
-│   │   ├── config.py           # Settings from env vars
-│   │   ├── database.py         # Async PostgreSQL pool
-│   │   └── routes/
-│   │       ├── permits.py      # Permit CRUD + filters + GeoJSON
-│   │       ├── planning.py     # Planning case endpoints
-│   │       ├── places.py       # Place listing + detail
-│   │       ├── search.py       # Cross-entity search
-│   │       └── property.py     # Aggregated property reports
-│   ├── pipelines/
-│   │   ├── permits/
-│   │   │   └── sync_permits.py # LADBS Socrata sync
-│   │   └── planning/
-│   │       └── sync_planning.py # LA City Planning sync
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── app/                # Next.js App Router pages
-│   │   ├── components/         # React components
-│   │   └── lib/mock-data.ts    # Demo data (55 permits, 23 cases)
-│   └── package.json
-├── .github/workflows/
-│   ├── sync-permits.yml        # Daily at 4am UTC
-│   └── sync-planning.yml       # Daily at 5am UTC
-└── PRODUCT_SPEC.md
-```
-
-## Setup
+## Getting Started
 
 ### Prerequisites
 
-- Node.js 20+
-- Python 3.12+
-- PostgreSQL with PostGIS extension
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL 15+ with PostGIS extension
+- A [Neon](https://neon.tech) database (or any PostgreSQL instance)
 
-### Frontend
+### Database Setup
 
-```bash
-cd frontend
-npm install
-npm run dev
-# Open http://localhost:3000
-```
-
-The frontend includes comprehensive mock data and works as a fully functional demo without the backend.
+1. Create a Neon project and database
+2. Enable PostGIS:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS postgis;
+   ```
+3. Run the schema:
+   ```bash
+   psql $DATABASE_URL -f backend/schema.sql
+   ```
 
 ### Backend
 
@@ -79,48 +77,81 @@ cd backend
 pip install -r requirements.txt
 
 # Set environment variables
-cp .env.example .env
-# Edit .env with your database credentials
+export DATABASE_URL="postgresql://user:pass@host/dbname"
 
-# Initialize database
-psql $DATABASE_URL < schema.sql
-
-# Run API server
-uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
+# Run the API
+uvicorn api.main:app --reload --port 8000
 ```
+
+API docs available at `http://localhost:8000/docs`
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+
+# For development (uses mock data by default)
+npm run dev
+
+# Production build
+npm run build
+npm start
+```
+
+The frontend runs at `http://localhost:3000` with mock data for all LA neighborhoods. Connect to the live API by setting `NEXT_PUBLIC_API_URL`.
 
 ### Data Pipelines
 
+Run manually or via GitHub Actions:
+
 ```bash
-# Sync building permits
+# Sync permits from LADBS Socrata
 python -m backend.pipelines.permits.sync_permits
 
-# Sync planning cases
+# Sync planning cases from LA City Planning
 python -m backend.pipelines.planning.sync_planning
 ```
 
-## API Endpoints
+### Environment Variables
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/permits` | List permits with filters |
-| GET | `/api/permits/stats` | Permit aggregate stats |
-| GET | `/api/permits/recent` | Latest 50 permits |
-| GET | `/api/permits/{permit_nbr}` | Single permit detail |
-| GET | `/api/planning` | List planning cases |
-| GET | `/api/planning/stats` | Planning case stats |
-| GET | `/api/planning/{case_number}` | Single case detail |
-| GET | `/api/places` | List places by type |
-| GET | `/api/places/{slug}` | Place detail + stats |
-| GET | `/api/search?q=` | Cross-entity search |
-| GET | `/api/property/{address}` | Property report |
-| GET | `/api/health` | Health check |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string | Yes (backend) |
+| `NEXT_PUBLIC_API_URL` | Backend API URL | No (defaults to mock data) |
 
-## Data Sources
+### GitHub Actions Secrets
 
-- **LADBS Building Permits**: `data.lacity.org/resource/pi9x-tg5x.json` (2020+) and `vdg9-hy7c.json` (2012-2019)
-- **LA City Planning Cases**: `planning.lacity.org/dcpapi/general/newcases`
+For automated nightly sync, add these repository secrets:
+
+| Secret | Description |
+|--------|-------------|
+| `NEON_DATABASE_URL` | Full Neon PostgreSQL connection string |
+
+## Features
+
+- **Permit Explorer** — Search, filter, and map 100K+ LA building permits by type, status, date, location
+- **Planning Cases** — Track zone changes, environmental reviews, conditional use permits
+- **Place Profiles** — Activity dashboards for all 35 community plan areas and 15 council districts
+- **Property Lookup** — Full permit and planning history for any LA address
+- **Interactive Maps** — Leaflet.js with dark CARTO tiles, clustered markers, GeoJSON overlays
+- **Real-time Data** — Nightly sync from LADBS Socrata and LA City Planning APIs
+
+## Roadmap
+
+- [ ] Zoning overlay maps (ZIMAS integration)
+- [ ] Construction timeline tracking (inspection data)
+- [ ] Developer/contractor profiles and rankings
+- [ ] Email alerts for new permits in saved areas
+- [ ] Pro subscription tier with API access
+- [ ] Census and demographic data overlays
+- [ ] Historical permit trend analysis
+
+## Related Projects
+
+- [Aiva Backend](https://github.com/bzhang0824/aiva-backend-v1) — Construction data ETL pipelines for 13 LA County cities
+- [Aiva](https://www.aivabuild.com) — AI-powered construction intelligence
 
 ## License
 
-Proprietary. All rights reserved.
+Private — All rights reserved.
