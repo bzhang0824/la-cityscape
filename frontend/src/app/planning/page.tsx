@@ -1,157 +1,138 @@
-"use client";
+'use client';
 
-import { useState, useMemo } from "react";
-import Link from "next/link";
-import dynamic from "next/dynamic";
-import { Building2, ChevronDown, ChevronUp, Filter, X } from "lucide-react";
-import { mockPlanningCases, CASE_TYPES, COUNCIL_DISTRICTS, type PlanningCase } from "@/lib/mock-data";
+import { useState, useMemo } from 'react';
+import Link from 'next/link';
+import { Filter, ChevronLeft, ChevronRight } from 'lucide-react';
+import { DynamicPlanningMap } from '@/components/map/MapWrapper';
+import { planningCases } from '@/lib/mock-data';
 
-const PlanningMap = dynamic(() => import("@/components/map/PlanningMap"), { ssr: false });
-
-type SortKey = "case_number" | "address" | "case_type" | "filing_date" | "project_description";
-type SortDir = "asc" | "desc";
+const CASE_TYPES = ['All', 'CPC', 'ENV', 'DIR', 'VTT', 'TT', 'ZA', 'EAR'];
+const PAGE_SIZE = 10;
 
 export default function PlanningPage() {
-  const [showFilters, setShowFilters] = useState(true);
-  const [caseType, setCaseType] = useState("");
-  const [councilDistrict, setCouncilDistrict] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("filing_date");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [typeFilter, setTypeFilter] = useState('All');
+  const [districtFilter, setDistrictFilter] = useState(0);
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
-    let result = [...mockPlanningCases];
-    if (caseType) result = result.filter((c) => c.case_type === caseType);
-    if (councilDistrict) result = result.filter((c) => c.council_district === councilDistrict);
-    if (dateFrom) result = result.filter((c) => c.filing_date >= dateFrom);
-    if (dateTo) result = result.filter((c) => c.filing_date <= dateTo);
-    result.sort((a, b) => {
-      const av = a[sortKey] ?? "";
-      const bv = b[sortKey] ?? "";
-      return sortDir === "asc"
-        ? String(av).localeCompare(String(bv))
-        : String(bv).localeCompare(String(av));
-    });
+    let result = [...planningCases];
+    if (typeFilter !== 'All') {
+      result = result.filter((c) => c.case_type === typeFilter);
+    }
+    if (districtFilter > 0) {
+      result = result.filter((c) => c.council_district === districtFilter);
+    }
+    result.sort((a, b) => b.filing_date.localeCompare(a.filing_date));
     return result;
-  }, [caseType, councilDistrict, dateFrom, dateTo, sortKey, sortDir]);
+  }, [typeFilter, districtFilter]);
 
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
-    else { setSortKey(key); setSortDir("desc"); }
-  }
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ChevronDown className="h-3 w-3 text-slate-300" />;
-    return sortDir === "asc" ? <ChevronUp className="h-3 w-3 text-teal" /> : <ChevronDown className="h-3 w-3 text-teal" />;
-  }
-
-  function StatusBadge({ c }: { c: PlanningCase }) {
-    if (c.completed) return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Completed</span>;
-    if (c.on_hold) return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">On Hold</span>;
-    return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Active</span>;
-  }
+  const districts = Array.from(new Set(planningCases.map((c) => c.council_district))).sort((a, b) => a - b);
 
   return (
-    <div className="h-screen flex flex-col">
-      <header className="bg-navy text-white px-4 py-3 flex items-center justify-between shrink-0 z-10">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2">
-            <Building2 className="h-6 w-6 text-teal" />
-            <span className="font-bold">LA Cityscape</span>
-          </Link>
-          <nav className="hidden md:flex items-center gap-4 text-sm ml-4">
-            <Link href="/permits" className="hover:text-teal transition-colors">Permits</Link>
-            <Link href="/planning" className="text-teal font-medium">Planning</Link>
-            <Link href="/places" className="hover:text-teal transition-colors">Places</Link>
-            <Link href="/pricing" className="hover:text-teal transition-colors">Pricing</Link>
-          </nav>
-        </div>
-        <span className="text-slate-300 text-sm">{filtered.length} planning cases</span>
-      </header>
-
-      <div className="flex-1 flex overflow-hidden">
-        <div className="w-full lg:w-[45%] flex flex-col border-r border-slate-200 bg-white overflow-hidden">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 border-b border-slate-200 hover:bg-slate-50"
-          >
-            <Filter className="h-4 w-4" /> Filters
-            {showFilters ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
-          </button>
-
-          {showFilters && (
-            <div className="p-4 border-b border-slate-200 bg-slate-50 space-y-3 shrink-0">
-              <div className="grid grid-cols-2 gap-3">
-                <select value={caseType} onChange={(e) => setCaseType(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
-                  <option value="">All Case Types</option>
-                  {CASE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <select value={councilDistrict} onChange={(e) => setCouncilDistrict(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
-                  <option value="">All Districts</option>
-                  {COUNCIL_DISTRICTS.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
-                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
-              </div>
-              <button onClick={() => { setCaseType(""); setCouncilDistrict(""); setDateFrom(""); setDateTo(""); }} className="text-xs text-slate-500 hover:text-red-500 flex items-center gap-1">
-                <X className="h-3 w-3" /> Clear filters
-              </button>
-            </div>
-          )}
-
-          <div className="flex-1 overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-100 sticky top-0">
-                <tr>
-                  {([
-                    ["case_number", "Case #"],
-                    ["address", "Address"],
-                    ["case_type", "Type"],
-                    ["filing_date", "Filed"],
-                    ["project_description", "Description"],
-                  ] as [SortKey, string][]).map(([key, label]) => (
-                    <th
-                      key={key}
-                      onClick={() => toggleSort(key)}
-                      className="px-3 py-2 text-left font-medium text-slate-600 cursor-pointer hover:text-navy whitespace-nowrap"
-                    >
-                      <span className="inline-flex items-center gap-1">{label} <SortIcon col={key} /></span>
-                    </th>
-                  ))}
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((c, i) => (
-                  <tr key={c.id} className={`border-b border-slate-100 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-teal/10`}>
-                    <td className="px-3 py-2">
-                      <a href={c.pdis_url} target="_blank" rel="noopener noreferrer" className="text-teal hover:underline font-medium">
-                        {c.case_number}
-                      </a>
-                    </td>
-                    <td className="px-3 py-2 text-navy max-w-[150px] truncate">{c.address}</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-xs font-medium">{c.case_type}</span>
-                    </td>
-                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">
-                      {new Date(c.filing_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                    </td>
-                    <td className="px-3 py-2 text-slate-500 max-w-[200px] truncate">{c.project_description}</td>
-                    <td className="px-3 py-2"><StatusBadge c={c} /></td>
-                  </tr>
+    <div className="flex flex-col lg:flex-row h-[calc(100vh-4rem)]">
+      {/* Left Panel */}
+      <div className="w-full lg:w-2/5 flex flex-col border-r border-slate-200 bg-white">
+        {/* Filters */}
+        <div className="p-4 border-b border-slate-200 bg-slate-50">
+          <h1 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-3">
+            <Filter className="w-4 h-4 text-purple-500" />
+            Planning Cases
+          </h1>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Case Type</label>
+              <select
+                value={typeFilter}
+                onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
+                className="w-full text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none"
+              >
+                {CASE_TYPES.map((t) => (
+                  <option key={t} value={t}>{t}</option>
                 ))}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={6} className="px-3 py-12 text-center text-slate-400">No planning cases match your filters</td></tr>
-                )}
-              </tbody>
-            </table>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Council District</label>
+              <select
+                value={districtFilter}
+                onChange={(e) => { setDistrictFilter(Number(e.target.value)); setPage(1); }}
+                className="w-full text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none"
+              >
+                <option value={0}>All</option>
+                {districts.map((d) => (
+                  <option key={d} value={d}>CD {d}</option>
+                ))}
+              </select>
+            </div>
           </div>
+          <p className="mt-2 text-xs text-slate-400">{filtered.length} cases found</p>
         </div>
 
-        <div className="hidden lg:block flex-1">
-          <PlanningMap cases={filtered} />
+        {/* Cases List */}
+        <div className="flex-1 overflow-auto">
+          {paginated.map((c) => (
+            <div
+              key={c.case_number}
+              className="p-4 border-b border-slate-100 hover:bg-purple-50/30 transition-colors"
+            >
+              <div className="flex items-start justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-mono font-semibold text-purple-600">{c.case_number}</span>
+                    <span className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">
+                      {c.case_type}
+                    </span>
+                  </div>
+                  <Link
+                    href={`/property/${encodeURIComponent(c.address)}`}
+                    className="text-sm font-medium text-teal hover:underline"
+                  >
+                    {c.address}
+                  </Link>
+                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">{c.project_description}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-400">
+                <span>Filed: {c.filing_date}</span>
+                <span>CD {c.council_district}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  c.status === 'Approved' ? 'bg-green-100 text-green-700' :
+                  c.status === 'Under Review' ? 'bg-yellow-100 text-yellow-700' :
+                  'bg-slate-100 text-slate-600'
+                }`}>
+                  {c.status}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
+
+        {/* Pagination */}
+        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 disabled:opacity-40"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" /> Previous
+          </button>
+          <span className="text-xs text-slate-500">Page {page} of {totalPages}</span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 disabled:opacity-40"
+          >
+            Next <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Right Panel — Map */}
+      <div className="flex-1 h-64 lg:h-auto">
+        <DynamicPlanningMap cases={filtered} />
       </div>
     </div>
   );

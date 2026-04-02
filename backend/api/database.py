@@ -1,22 +1,38 @@
-import asyncpg
-from backend.api.config import settings
+"""Async PostgreSQL connection pool using asyncpg."""
 
-pool: asyncpg.Pool | None = None
+import asyncpg
+import logging
+from contextlib import asynccontextmanager
+from .config import settings
+
+logger = logging.getLogger(__name__)
+
+_pool: asyncpg.Pool | None = None
 
 
 async def get_pool() -> asyncpg.Pool:
-    global pool
-    if pool is None:
-        pool = await asyncpg.create_pool(
-            dsn=settings.database_url,
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(
+            settings.database_url,
             min_size=2,
             max_size=10,
+            command_timeout=30,
         )
-    return pool
+        logger.info("Database connection pool created")
+    return _pool
 
 
-async def close_pool() -> None:
-    global pool
-    if pool is not None:
-        await pool.close()
-        pool = None
+async def close_pool():
+    global _pool
+    if _pool:
+        await _pool.close()
+        _pool = None
+        logger.info("Database connection pool closed")
+
+
+@asynccontextmanager
+async def get_connection():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        yield conn

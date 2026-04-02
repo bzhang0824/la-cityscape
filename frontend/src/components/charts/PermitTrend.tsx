@@ -1,4 +1,4 @@
-'use client';
+'use client'
 
 import {
   LineChart,
@@ -8,84 +8,80 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-} from 'recharts';
+} from 'recharts'
 
 interface PermitDataPoint {
-  month: string;
-  count: number;
-  value: number;
+  month: string
+  count: number
 }
 
 interface PermitTrendProps {
-  data: PermitDataPoint[];
+  data: PermitDataPoint[]
+  /** Optional chart title displayed above the chart */
+  title?: string
 }
 
-export default function PermitTrend({ data }: PermitTrendProps) {
+export default function PermitTrend({ data, title = 'Permit Activity' }: PermitTrendProps) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5">
-      <h3 className="font-heading text-base font-semibold text-navy mb-4">
-        Monthly Permit Trend
-      </h3>
-      <div className="h-72 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart
-            data={data}
-            margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
-          >
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="#E2E8F0"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="month"
-              tick={{ fontSize: 12, fill: '#64748B' }}
-              tickLine={false}
-              axisLine={{ stroke: '#E2E8F0' }}
-            />
-            <YAxis
-              tick={{ fontSize: 12, fill: '#64748B' }}
-              tickLine={false}
-              axisLine={false}
-              width={45}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: '#0F172A',
-                border: 'none',
-                borderRadius: '8px',
-                color: '#F8FAFC',
-                fontSize: '13px',
-              }}
-              itemStyle={{ color: '#38BDF8' }}
-              labelStyle={{ color: '#94A3B8', marginBottom: '4px' }}
-              formatter={(val, name) => {
-                const v = Number(val);
-                if (name === 'count') return [v.toLocaleString(), 'Permits'];
-                if (name === 'value')
-                  return [`$${v.toLocaleString()}`, 'Total Value'];
-                return [v, String(name)];
-              }}
-            />
-            <Line
-              type="monotone"
-              dataKey="count"
-              stroke="#0EA5E9"
-              strokeWidth={2.5}
-              dot={{ r: 3, fill: '#0EA5E9', strokeWidth: 0 }}
-              activeDot={{ r: 5, fill: '#0EA5E9', strokeWidth: 2, stroke: '#fff' }}
-            />
-            <Line
-              type="monotone"
-              dataKey="value"
-              stroke="#64748B"
-              strokeWidth={1.5}
-              strokeDasharray="4 4"
-              dot={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+    <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+      {title && (
+        <h3 className="text-sm font-semibold text-slate-700 mb-4">{title}</h3>
+      )}
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={data} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+          <XAxis
+            dataKey="month"
+            tick={{ fontSize: 12, fill: '#94a3b8' }}
+            axisLine={{ stroke: '#e2e8f0' }}
+            tickLine={false}
+            label={{
+              value: 'Month',
+              position: 'insideBottom',
+              offset: -2,
+              fontSize: 11,
+              fill: '#94a3b8',
+            }}
+          />
+          <YAxis
+            tick={{ fontSize: 12, fill: '#94a3b8' }}
+            axisLine={false}
+            tickLine={false}
+            width={40}
+            label={{
+              value: 'Permits',
+              angle: -90,
+              position: 'insideLeft',
+              offset: 8,
+              fontSize: 11,
+              fill: '#94a3b8',
+            }}
+          />
+          <Tooltip
+            contentStyle={{
+              background: '#0f172a',
+              border: 'none',
+              borderRadius: '8px',
+              color: '#f8fafc',
+              fontSize: '12px',
+            }}
+            labelStyle={{ color: '#94a3b8', marginBottom: '2px' }}
+            cursor={{ stroke: '#0ea5e9', strokeWidth: 1, strokeDasharray: '4 2' }}
+            formatter={(value) => [
+              typeof value === 'number' ? value.toLocaleString() : String(value),
+              'Permits',
+            ]}
+          />
+          <Line
+            type="monotone"
+            dataKey="count"
+            stroke="#0ea5e9"
+            strokeWidth={2.5}
+            dot={{ r: 3, fill: '#0ea5e9', strokeWidth: 0 }}
+            activeDot={{ r: 5, fill: '#0ea5e9', stroke: '#fff', strokeWidth: 2 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
-  );
+  )
 }

@@ -1,70 +1,86 @@
-import Link from "next/link";
-import { Building2, MapPin, Users, Hash } from "lucide-react";
-import { mockPlaces } from "@/lib/mock-data";
-
-const typeConfig: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-  council_district: { label: "Council Districts", icon: <Users className="h-5 w-5" />, color: "bg-blue-100 text-blue-700" },
-  community_plan_area: { label: "Community Plan Areas", icon: <MapPin className="h-5 w-5" />, color: "bg-teal/10 text-teal-dark" },
-  neighborhood_council: { label: "Neighborhood Councils", icon: <Hash className="h-5 w-5" />, color: "bg-purple-100 text-purple-700" },
-};
+import Link from 'next/link';
+import { MapPin, Building2 } from 'lucide-react';
+import { places } from '@/lib/mock-data';
 
 export default function PlacesPage() {
-  const groups = mockPlaces.reduce<Record<string, typeof mockPlaces>>((acc, p) => {
-    (acc[p.place_type] = acc[p.place_type] || []).push(p);
-    return acc;
-  }, {});
+  const councilDistricts = places.filter((p) => p.type === 'council_district');
+  const communityPlanAreas = places.filter((p) => p.type === 'community_plan_area');
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-navy text-white px-4 py-3 flex items-center gap-4">
-        <Link href="/" className="flex items-center gap-2">
-          <Building2 className="h-6 w-6 text-teal" />
-          <span className="font-bold">LA Cityscape</span>
-        </Link>
-        <nav className="hidden md:flex items-center gap-4 text-sm ml-4">
-          <Link href="/permits" className="hover:text-teal transition-colors">Permits</Link>
-          <Link href="/planning" className="hover:text-teal transition-colors">Planning</Link>
-          <Link href="/places" className="text-teal font-medium">Places</Link>
-          <Link href="/pricing" className="hover:text-teal transition-colors">Pricing</Link>
-        </nav>
-      </header>
+    <div className="bg-slate-50 min-h-screen">
+      <div className="bg-white border-b border-slate-200">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+          <h1 className="text-3xl font-bold text-slate-900">Browse Places</h1>
+          <p className="mt-2 text-slate-500">
+            Explore construction activity by council district or community plan area.
+          </p>
+        </div>
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-navy mb-2 font-[family-name:var(--font-heading)]">Places</h1>
-        <p className="text-slate-500 mb-10">Browse construction activity by area across Los Angeles</p>
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+        {/* Council Districts */}
+        <section className="mb-12">
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2 mb-6">
+            <Building2 className="w-5 h-5 text-teal" />
+            Council Districts
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {councilDistricts.map((place) => (
+              <Link
+                key={place.slug}
+                href={`/places/${place.slug}`}
+                className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 hover:border-sky-300 hover:shadow-md transition-all group"
+              >
+                <h3 className="text-lg font-semibold text-slate-900 group-hover:text-teal transition-colors">
+                  {place.name}
+                </h3>
+                <div className="mt-3 flex items-center gap-4 text-sm text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-teal" />
+                    {place.permit_count.toLocaleString()} permits
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-purple-500" />
+                    {place.planning_case_count} cases
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-slate-400">Top type: {place.top_permit_type}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
 
-        {Object.entries(groups).map(([type, places]) => {
-          const config = typeConfig[type] || { label: type, icon: <MapPin className="h-5 w-5" />, color: "bg-slate-100 text-slate-700" };
-          return (
-            <section key={type} className="mb-12">
-              <h2 className="text-xl font-semibold text-navy mb-4 flex items-center gap-2 font-[family-name:var(--font-heading)]">
-                {config.icon} {config.label}
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {places.map((place) => (
-                  <Link
-                    key={place.id}
-                    href={`/places/${place.slug}`}
-                    className="bg-white rounded-xl p-5 shadow-sm border border-slate-200 hover:shadow-md hover:border-teal/30 transition-all group"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="font-semibold text-navy group-hover:text-teal transition-colors">{place.name}</h3>
-                        <span className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${config.color}`}>
-                          {config.label.replace(/s$/, "")}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="mt-4 flex items-baseline gap-1">
-                      <span className="text-2xl font-bold text-navy">{place.permit_count.toLocaleString()}</span>
-                      <span className="text-sm text-slate-400">permits</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          );
-        })}
+        {/* Community Plan Areas */}
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2 mb-6">
+            <MapPin className="w-5 h-5 text-purple-500" />
+            Community Plan Areas
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {communityPlanAreas.map((place) => (
+              <Link
+                key={place.slug}
+                href={`/places/${place.slug}`}
+                className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 hover:border-purple-300 hover:shadow-md transition-all group"
+              >
+                <h3 className="text-lg font-semibold text-slate-900 group-hover:text-purple-600 transition-colors">
+                  {place.name}
+                </h3>
+                <div className="mt-3 flex items-center gap-4 text-sm text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-teal" />
+                    {place.permit_count.toLocaleString()} permits
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-purple-500" />
+                    {place.planning_case_count} cases
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-slate-400">Top type: {place.top_permit_type}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
       </div>
     </div>
   );

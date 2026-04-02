@@ -1,65 +1,36 @@
-from typing import Optional
+"""Planning case endpoints — browse LA City planning applications."""
 
 from fastapi import APIRouter, Query
-from backend.api.database import get_pool
+from typing import Optional
+from ..database import get_connection
 
 router = APIRouter()
 
 
-@router.get("/stats")
-async def planning_stats():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        total = await conn.fetchval("SELECT COUNT(*) FROM planning_cases")
-        by_type = await conn.fetch(
-            "SELECT case_type, COUNT(*) as count FROM planning_cases "
-            "GROUP BY case_type ORDER BY count DESC LIMIT 10"
-        )
-        monthly = await conn.fetch(
-            "SELECT date_trunc('month', filing_date) as month, COUNT(*) as count "
-            "FROM planning_cases WHERE filing_date IS NOT NULL "
-            "GROUP BY month ORDER BY month DESC LIMIT 12"
-        )
-    return {
-        "total": total,
-        "by_type": [dict(r) for r in by_type],
-        "monthly_trend": [
-            {"month": r["month"].isoformat() if r["month"] else None, "count": r["count"]}
-            for r in monthly
-        ],
-    }
-
-
-@router.get("/{case_number}")
-async def get_planning_case(case_number: str):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id, case_number, address, filing_date, case_type, "
-            "council_district, community_plan_area, project_description, "
-            "pdis_url, applicant, applicant_company, representative, "
-            "representative_company, entitlements_requested, environmental_flag, "
-            "on_hold, completed, use_type, source, city, lat, lon, "
-            "created_at, updated_at "
-            "FROM planning_cases WHERE case_number = $1",
-            case_number,
-        )
-    if not row:
-        return {"error": "Planning case not found"}
-    return dict(row)
+def _serialize(v):
+    from datetime import datetime, date
+    from decimal import Decimal
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return float(v)
+    return v
 
 
 @router.get("")
 async def list_planning_cases(
-    case_type: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    council_district: Optional[str] = None,
-    community_plan_area: Optional[str] = None,
-    limit: int = Query(default=50, le=1000),
-    offset: int = Query(default=0, ge=0),
+    case_type: Optional[str] = Query(None),
+    council_district: Optional[str] = Query(None),
+    community_plan_area: Optional[str] = Query(None),
+    city: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    completed: Optional[bool] = Query(None),
+    q: Optional[str] = Query(None),
+    format: Optional[str] = Query("json"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
-    pool = await get_pool()
     conditions = []
     params = []
     idx = 1
@@ -67,14 +38,6 @@ async def list_planning_cases(
     if case_type:
         conditions.append(f"case_type = ${idx}")
         params.append(case_type)
-        idx += 1
-    if date_from:
-        conditions.append(f"filing_date >= ${idx}::date")
-        params.append(date_from)
-        idx += 1
-    if date_to:
-        conditions.append(f"filing_date <= ${idx}::date")
-        params.append(date_to)
         idx += 1
     if council_district:
         conditions.append(f"council_district = ${idx}")
@@ -84,23 +47,90 @@ async def list_planning_cases(
         conditions.append(f"community_plan_area = ${idx}")
         params.append(community_plan_area)
         idx += 1
+    if city:
+        conditions.append(f"city = ${idx}")
+        params.append(city)
+        idx += 1
+    if date_from:
+        conditions.append(f"filing_date >= ${idx}::date")
+        params.append(date_from)
+        idx += 1
+    if date_to:
+        conditions.append(f"filing_date <= ${idx}::date")
+        params.append(date_to)
+        idx += 1
+    if completed is not None:
+        conditions.append(f"completed = ${idx}")
+        params.append(completed)
+        idx += 1
+    if q:
+        conditions.append(f"(address ILIKE ${idx} OR project_description ILIKE ${idx})")
+        params.append(f"%{q}%")
+        idx += 1
 
-    where = " WHERE " + " AND ".join(conditions) if conditions else ""
+    where = "WHERE " + " AND ".join(conditions) if conditions else ""
 
-    async with pool.acquire() as conn:
-        count = await conn.fetchval(f"SELECT COUNT(*) FROM planning_cases{where}", *params)
-        rows = await conn.fetch(
-            f"SELECT id, case_number, address, filing_date, case_type, "
-            f"council_district, community_plan_area, project_description, "
-            f"pdis_url, applicant, on_hold, completed, use_type, lat, lon "
-            f"FROM planning_cases{where} ORDER BY filing_date DESC NULLS LAST "
-            f"LIMIT ${idx} OFFSET ${idx+1}",
-            *params, limit, offset,
+    count_sql = f"SELECT COUNT(*) FROM planning_cases {where}"
+    data_sql = f"""
+        SELECT id, case_number, address, filing_date, case_type, council_district,
+               community_plan_area, project_description, pdis_url, applicant,
+               applicant_company, use_type, source, city, on_hold, completed, lat, lon
+        FROM planning_cases {where}
+        ORDER BY filing_date DESC NULLS LAST
+        LIMIT ${idx} OFFSET ${idx+1}
+    """
+    params.extend([limit, offset])
+
+    async with get_connection() as conn:
+        total = await conn.fetchval(count_sql, *params[:-2])
+        rows = await conn.fetch(data_sql, *params)
+
+    results = [dict(r) for r in rows]
+
+    if format == "geojson":
+        features = []
+        for r in results:
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [r["lon"], r["lat"]]} if r["lat"] and r["lon"] else None,
+                "properties": {k: _serialize(v) for k, v in r.items() if k not in ("lat", "lon")},
+            })
+        return {"type": "FeatureCollection", "features": features, "total": total}
+
+    for r in results:
+        for k, v in r.items():
+            r[k] = _serialize(v)
+    return {"data": results, "total": total, "limit": limit, "offset": offset}
+
+
+@router.get("/stats")
+async def planning_stats():
+    async with get_connection() as conn:
+        total = await conn.fetchval("SELECT COUNT(*) FROM planning_cases")
+        by_type = await conn.fetch(
+            "SELECT case_type, COUNT(*) as cnt FROM planning_cases GROUP BY case_type ORDER BY cnt DESC"
         )
-
+        by_city = await conn.fetch(
+            "SELECT city, COUNT(*) as cnt FROM planning_cases GROUP BY city ORDER BY cnt DESC LIMIT 15"
+        )
+        recent_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM planning_cases WHERE filing_date >= CURRENT_DATE - INTERVAL '30 days'"
+        )
     return {
-        "data": [dict(r) for r in rows],
-        "total": count,
-        "limit": limit,
-        "offset": offset,
+        "total_cases": total,
+        "by_type": [dict(r) for r in by_type],
+        "by_city": [dict(r) for r in by_city],
+        "last_30_days": recent_count,
     }
+
+
+@router.get("/{case_number}")
+async def get_planning_case(case_number: str):
+    async with get_connection() as conn:
+        row = await conn.fetchrow("SELECT * FROM planning_cases WHERE case_number = $1", case_number)
+    if not row:
+        return {"error": "Planning case not found"}, 404
+    result = dict(row)
+    for k, v in result.items():
+        result[k] = _serialize(v)
+    return result

@@ -1,198 +1,142 @@
-import Link from "next/link";
-import { Building2, ArrowLeft, FileText, TrendingUp, Users } from "lucide-react";
-import { mockPlaces, mockPermits } from "@/lib/mock-data";
+'use client';
 
-function formatCurrency(val: number) {
-  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
-  if (val >= 1_000) return `$${(val / 1_000).toFixed(0)}K`;
-  return `$${val.toLocaleString()}`;
+import { use, useMemo } from 'react';
+import Link from 'next/link';
+import { ArrowLeft, MapPin, FileText } from 'lucide-react';
+import { DynamicPermitMap } from '@/components/map/MapWrapper';
+import StatCard from '@/components/ui/StatCard';
+import { places, permits, planningCases } from '@/lib/mock-data';
+
+interface Props {
+  params: Promise<{ slug: string }>;
 }
 
-export default async function PlaceDetailPage(props: { params: Promise<{ slug: string }> }) {
-  const { slug } = await props.params;
-  const place = mockPlaces.find((p) => p.slug === slug);
+export default function PlaceDetailPage({ params }: Props) {
+  const { slug } = use(params);
+  const place = places.find((p) => p.slug === slug);
+
+  const areaPermits = useMemo(() => {
+    if (!place) return [];
+    if (place.type === 'council_district') {
+      const cdNum = parseInt(place.slug.replace('cd-', ''));
+      return permits.filter((p) => p.council_district === cdNum);
+    }
+    return permits.filter((p) => p.community_plan_area === place.name);
+  }, [place]);
+
+  const areaCases = useMemo(() => {
+    if (!place) return [];
+    if (place.type === 'council_district') {
+      const cdNum = parseInt(place.slug.replace('cd-', ''));
+      return planningCases.filter((c) => c.council_district === cdNum);
+    }
+    return planningCases.filter((c) => c.community_plan_area === place.name);
+  }, [place]);
+
+  const totalValuation = areaPermits.reduce((sum, p) => sum + p.valuation, 0);
 
   if (!place) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-navy mb-4">Place not found</h1>
-          <Link href="/places" className="text-teal hover:underline">Back to places</Link>
+          <h1 className="text-2xl font-bold text-slate-900">Place not found</h1>
+          <Link href="/places" className="text-teal hover:underline mt-4 block">
+            Back to Places
+          </Link>
         </div>
       </div>
     );
   }
 
-  const areaPermits = mockPermits.filter((p) => {
-    if (place.place_type === "council_district") return p.council_district === place.name.replace("Council District ", "CD ");
-    if (place.place_type === "community_plan_area") return p.community_plan_area === place.name;
-    return false;
-  });
-
-  const typeBreakdown = areaPermits.reduce<Record<string, number>>((acc, p) => {
-    acc[p.permit_type] = (acc[p.permit_type] || 0) + 1;
-    return acc;
-  }, {});
-
-  const totalValuation = areaPermits.reduce((sum, p) => sum + p.valuation, 0);
-
-  const topContractors = Object.entries(
-    areaPermits.reduce<Record<string, number>>((acc, p) => {
-      if (p.contractor_name) acc[p.contractor_name] = (acc[p.contractor_name] || 0) + 1;
-      return acc;
-    }, {})
-  ).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-navy text-white px-4 py-3 flex items-center gap-4">
-        <Link href="/" className="flex items-center gap-2">
-          <Building2 className="h-6 w-6 text-teal" />
-          <span className="font-bold">LA Cityscape</span>
-        </Link>
-        <nav className="hidden md:flex items-center gap-4 text-sm ml-4">
-          <Link href="/permits" className="hover:text-teal transition-colors">Permits</Link>
-          <Link href="/planning" className="hover:text-teal transition-colors">Planning</Link>
-          <Link href="/places" className="text-teal font-medium">Places</Link>
-        </nav>
-      </header>
+    <div className="bg-slate-50 min-h-screen">
+      <div className="bg-white border-b border-slate-200">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+          <Link href="/places" className="text-sm text-teal hover:underline flex items-center gap-1 mb-2">
+            <ArrowLeft className="w-3.5 h-3.5" /> Back to Places
+          </Link>
+          <h1 className="text-2xl font-bold text-slate-900">{place.name}</h1>
+          <p className="text-sm text-slate-500 mt-1 capitalize">{place.type.replace(/_/g, ' ')}</p>
+        </div>
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        <Link href="/places" className="inline-flex items-center gap-1 text-sm text-teal hover:underline mb-4">
-          <ArrowLeft className="h-4 w-4" /> Back to places
-        </Link>
-
-        <h1 className="text-3xl font-bold text-navy mb-1 font-[family-name:var(--font-heading)]">{place.name}</h1>
-        <p className="text-slate-500 mb-8 capitalize">{place.place_type.replace(/_/g, " ")}</p>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-            <div className="flex items-start gap-3">
-              <FileText className="h-8 w-8 text-teal opacity-50" />
-              <div>
-                <p className="text-sm text-slate-500">Total Permits</p>
-                <p className="text-3xl font-bold text-navy">{place.permit_count.toLocaleString()}</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-            <div className="flex items-start gap-3">
-              <TrendingUp className="h-8 w-8 text-teal opacity-50" />
-              <div>
-                <p className="text-sm text-slate-500">Total Valuation</p>
-                <p className="text-3xl font-bold text-navy">{formatCurrency(totalValuation || place.permit_count * 85000)}</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-            <div className="flex items-start gap-3">
-              <Users className="h-8 w-8 text-teal opacity-50" />
-              <div>
-                <p className="text-sm text-slate-500">Active Contractors</p>
-                <p className="text-3xl font-bold text-navy">{topContractors.length || 12}</p>
-              </div>
-            </div>
-          </div>
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+        {/* Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          <StatCard
+            title="Total Permits"
+            value={areaPermits.length > 0 ? areaPermits.length : place.permit_count}
+            icon={<FileText className="w-5 h-5" />}
+          />
+          <StatCard
+            title="Planning Cases"
+            value={areaCases.length > 0 ? areaCases.length : place.planning_case_count}
+            icon={<MapPin className="w-5 h-5" />}
+          />
+          <StatCard
+            title="Total Valuation"
+            value={totalValuation > 0 ? `$${(totalValuation / 1000000).toFixed(1)}M` : 'N/A'}
+            subtitle="From matching permits"
+          />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Permit Type Breakdown */}
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-            <h2 className="text-lg font-semibold text-navy mb-4">Permits by Type</h2>
-            <div className="space-y-3">
-              {Object.keys(typeBreakdown).length > 0 ? (
-                Object.entries(typeBreakdown)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([type, count]) => (
-                    <div key={type} className="flex items-center justify-between">
-                      <span className="text-sm text-slate-600">{type}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-teal rounded-full"
-                            style={{ width: `${(count / Math.max(...Object.values(typeBreakdown))) * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-sm font-medium text-navy w-8 text-right">{count}</span>
-                      </div>
-                    </div>
-                  ))
-              ) : (
-                ["Building", "Electrical", "Mechanical", "Plumbing", "Grading"].map((type, i) => (
-                  <div key={type} className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">{type}</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-teal rounded-full" style={{ width: `${100 - i * 18}%` }} />
-                      </div>
-                      <span className="text-sm font-medium text-navy w-8 text-right">{Math.round(place.permit_count * (0.45 - i * 0.08))}</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Top Contractors */}
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-            <h2 className="text-lg font-semibold text-navy mb-4">Top Contractors / Developers</h2>
-            <div className="space-y-3">
-              {topContractors.length > 0 ? (
-                topContractors.map(([name, count], i) => (
-                  <div key={name} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-teal w-6">{i + 1}</span>
-                      <span className="text-sm text-navy">{name}</span>
-                    </div>
-                    <span className="text-sm text-slate-500">{count} permits</span>
-                  </div>
-                ))
-              ) : (
-                ["Turner Construction", "Morley Builders", "Suffolk Construction", "Bernards Construction", "Clark Construction"].map((name, i) => (
-                  <div key={name} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-teal w-6">{i + 1}</span>
-                      <span className="text-sm text-navy">{name}</span>
-                    </div>
-                    <span className="text-sm text-slate-500">{Math.round(place.permit_count * (0.05 - i * 0.008))} permits</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+        {/* Map */}
+        <div className="h-80 rounded-xl overflow-hidden border border-slate-200 shadow-sm mb-8">
+          <DynamicPermitMap permits={areaPermits.length > 0 ? areaPermits : []} />
         </div>
 
         {/* Recent Permits */}
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200 mt-8">
-          <h2 className="text-lg font-semibold text-navy mb-4">Recent Permits in {place.name}</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200">
-                  <th className="text-left py-2 text-slate-500 font-medium">Address</th>
-                  <th className="text-left py-2 text-slate-500 font-medium">Type</th>
-                  <th className="text-left py-2 text-slate-500 font-medium">Date</th>
-                  <th className="text-left py-2 text-slate-500 font-medium">Value</th>
-                  <th className="text-left py-2 text-slate-500 font-medium">Description</th>
+        <h2 className="text-lg font-bold text-slate-900 mb-4">Recent Permits</h2>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="text-left px-4 py-3 font-semibold text-slate-600">Address</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-600">Type</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-600">Date</th>
+                <th className="text-right px-4 py-3 font-semibold text-slate-600">Valuation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(areaPermits.length > 0 ? areaPermits : permits.slice(0, 5)).map((p) => (
+                <tr key={p.permit_nbr} className="border-b border-slate-50 hover:bg-slate-50">
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/property/${encodeURIComponent(p.primary_address)}`}
+                      className="text-teal hover:underline font-medium"
+                    >
+                      {p.primary_address}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{p.permit_type}</td>
+                  <td className="px-4 py-3 text-slate-500">{p.issue_date}</td>
+                  <td className="px-4 py-3 text-right font-medium">
+                    {p.valuation.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {(areaPermits.length > 0 ? areaPermits.slice(0, 10) : mockPermits.slice(0, 10)).map((p) => (
-                  <tr key={p.id} className="border-b border-slate-100">
-                    <td className="py-2 font-medium text-navy">{p.primary_address}</td>
-                    <td className="py-2 text-slate-600">{p.permit_type}</td>
-                    <td className="py-2 text-slate-500">
-                      {new Date(p.issue_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </td>
-                    <td className="py-2 text-slate-700 font-medium">{formatCurrency(p.valuation)}</td>
-                    <td className="py-2 text-slate-500 max-w-xs truncate">{p.work_desc}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
+
+        {/* Planning Cases */}
+        {areaCases.length > 0 && (
+          <>
+            <h2 className="text-lg font-bold text-slate-900 mb-4">Planning Cases</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {areaCases.map((c) => (
+                <div key={c.case_number} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="font-mono text-xs font-semibold text-purple-600">{c.case_number}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">{c.case_type}</span>
+                  </div>
+                  <p className="text-sm font-medium text-slate-700">{c.address}</p>
+                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">{c.project_description}</p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

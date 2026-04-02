@@ -1,25 +1,27 @@
-name: Sync Building Permits
+name: Sync LADBS Permits
 
 on:
   schedule:
-    - cron: "0 4 * * *" # Daily at 4am UTC / 9pm PDT
-  workflow_dispatch:
+    - cron: '0 4 * * *'  # 4am UTC = 9pm PDT
+  workflow_dispatch: {}
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
+          cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -r backend/requirements.txt
+        run: pip install -r backend/requirements.txt httpx asyncpg
 
-      - name: Run permit sync
+      - name: Sync permits from LADBS
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}

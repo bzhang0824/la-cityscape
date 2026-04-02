@@ -1,315 +1,232 @@
 """
-Sync LADBS building permits from LA City Socrata API.
-Handles both current (2020+) and legacy (2012-2019) datasets.
+Sync building permits from LADBS Socrata API into PostgreSQL.
 
-Usage:
-    python -m backend.pipelines.permits.sync_permits
+Datasets:
+  - pi9x-tg5x  (2020-present, primary)
+  - vdg9-hy7c  (2012-2019, legacy)
+
+Run:  python -m backend.pipelines.permits.sync_permits
 """
 
-import asyncio
-import logging
 import os
-from datetime import datetime
+import sys
+import json
+import logging
+import asyncio
+from datetime import datetime, timedelta
 
-import asyncpg
 import httpx
+import asyncpg
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+logger = logging.getLogger("sync_permits")
 
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+SOCRATA_APP_TOKEN = os.environ.get("SOCRATA_APP_TOKEN", "")
 SOCRATA_BASE = "https://data.lacity.org/resource"
+
 DATASETS = {
     "current": "pi9x-tg5x",  # 2020-present
     "legacy": "vdg9-hy7c",   # 2012-2019
 }
-SOCRATA_PAGE_SIZE = 50000
-SOCRATA_APP_TOKEN = os.getenv("SOCRATA_APP_TOKEN", "")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/lacityscape")
+
+PAGE_SIZE = 50000
 
 
-async def get_last_sync_date(conn: asyncpg.Connection) -> str | None:
-    row = await conn.fetchrow(
-        "SELECT MAX(completed_at) as last_run FROM pipeline_runs "
-        "WHERE pipeline = 'permits' AND status = 'completed'"
-    )
-    if row and row["last_run"]:
-        return row["last_run"].strftime("%Y-%m-%dT%H:%M:%S")
-    return None
-
-
-async def create_pipeline_run(conn: asyncpg.Connection) -> int:
-    return await conn.fetchval(
-        "INSERT INTO pipeline_runs (pipeline, status) VALUES ('permits', 'running') RETURNING id"
-    )
-
-
-async def update_pipeline_run(
-    conn: asyncpg.Connection,
-    run_id: int,
-    status: str,
-    processed: int = 0,
-    inserted: int = 0,
-    updated: int = 0,
-    error: str | None = None,
-):
-    await conn.execute(
-        "UPDATE pipeline_runs SET status = $1, completed_at = NOW(), "
-        "records_processed = $2, records_inserted = $3, records_updated = $4, "
-        "error_message = $5 WHERE id = $6",
-        status, processed, inserted, updated, error, run_id,
-    )
-
-
-def parse_permit(raw: dict) -> dict:
-    def parse_ts(val):
-        if not val:
-            return None
-        try:
-            return datetime.fromisoformat(val.replace("T", " ").split(".")[0])
-        except (ValueError, AttributeError):
-            return None
-
-    def parse_float(val):
-        if not val:
-            return None
-        try:
-            return float(val)
-        except (ValueError, TypeError):
-            return None
-
-    def parse_bool(val):
-        if not val:
-            return False
-        return str(val).strip().upper() in ("Y", "YES", "TRUE", "1")
-
-    lat = parse_float(raw.get("latitude") or raw.get("lat"))
-    lon = parse_float(raw.get("longitude") or raw.get("lon"))
-
-    return {
-        "permit_nbr": raw.get("permit_nbr") or raw.get("pcis_permit"),
-        "primary_address": raw.get("address") or raw.get("primary_address") or raw.get("address_start"),
-        "zip_code": raw.get("zip_code"),
-        "council_district": raw.get("council_district") or raw.get("council_dist"),
-        "pin_nbr": raw.get("pin_nbr") or raw.get("pin"),
-        "apn": raw.get("assessor_parcel_nbr") or raw.get("apn"),
-        "zone": raw.get("zone"),
-        "area_planning_commission": raw.get("area_planning_commission") or raw.get("apc"),
-        "community_plan_area": raw.get("community_plan_area") or raw.get("cpa"),
-        "neighborhood_council": raw.get("neighborhood_council"),
-        "census_tract": raw.get("census_tract"),
-        "permit_group": raw.get("permit_group") or raw.get("group"),
-        "permit_type": raw.get("permit_type") or raw.get("type"),
-        "permit_sub_type": raw.get("permit_sub_type") or raw.get("sub_type"),
-        "use_code": raw.get("use_code"),
-        "use_desc": raw.get("use_desc") or raw.get("use_description"),
-        "submitted_date": parse_ts(raw.get("submitted_date") or raw.get("date_submitted")),
-        "issue_date": parse_ts(raw.get("issue_date") or raw.get("date_issued")),
-        "status_desc": raw.get("status_desc") or raw.get("status"),
-        "status_date": parse_ts(raw.get("status_date")),
-        "valuation": parse_float(raw.get("valuation")),
-        "square_footage": parse_float(raw.get("square_footage") or raw.get("floor_area")),
-        "construction": raw.get("construction"),
-        "work_desc": raw.get("work_desc") or raw.get("work_description") or raw.get("description"),
-        "contractor_name": raw.get("contractor_name") or raw.get("contractor"),
-        "ev": parse_bool(raw.get("ev")),
-        "solar": parse_bool(raw.get("solar")),
-        "lat": lat,
-        "lon": lon,
+async def fetch_permits(client: httpx.AsyncClient, dataset_id: str, offset: int = 0, where: str = "") -> list[dict]:
+    """Fetch a page of permits from Socrata API."""
+    params = {
+        "$limit": PAGE_SIZE,
+        "$offset": offset,
+        "$order": "issue_date DESC",
     }
-
-
-async def fetch_dataset(
-    client: httpx.AsyncClient,
-    dataset_id: str,
-    last_sync: str | None = None,
-) -> list[dict]:
-    all_records = []
-    offset = 0
-    headers = {}
+    if where:
+        params["$where"] = where
     if SOCRATA_APP_TOKEN:
-        headers["X-App-Token"] = SOCRATA_APP_TOKEN
+        params["$$app_token"] = SOCRATA_APP_TOKEN
 
-    while True:
-        params = {
-            "$limit": SOCRATA_PAGE_SIZE,
-            "$offset": offset,
-            "$order": ":id",
-        }
-        if last_sync:
-            params["$where"] = f"issue_date > '{last_sync}'"
-
-        url = f"{SOCRATA_BASE}/{dataset_id}.json"
-        logger.info(f"Fetching {url} offset={offset}")
-
-        resp = await client.get(url, params=params, headers=headers, timeout=120)
-        resp.raise_for_status()
-        records = resp.json()
-
-        if not records:
-            break
-
-        all_records.extend(records)
-        logger.info(f"Fetched {len(records)} records (total: {len(all_records)})")
-
-        if len(records) < SOCRATA_PAGE_SIZE:
-            break
-        offset += SOCRATA_PAGE_SIZE
-
-    return all_records
+    url = f"{SOCRATA_BASE}/{dataset_id}.json"
+    resp = await client.get(url, params=params, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
 
 
-async def upsert_permits(conn: asyncpg.Connection, records: list[dict]) -> tuple[int, int]:
+async def upsert_permits(conn: asyncpg.Connection, permits: list[dict]) -> tuple[int, int]:
+    """Upsert permits into the database. Returns (inserted, updated)."""
     inserted = 0
     updated = 0
 
-    for raw in records:
-        parsed = parse_permit(raw)
-        if not parsed["permit_nbr"]:
-            continue
+    for p in permits:
+        lat = _float(p.get("lat"))
+        lon = _float(p.get("lon"))
 
-        geom_expr = "NULL"
-        extra_params = []
-        if parsed["lat"] and parsed["lon"]:
-            geom_expr = "ST_SetSRID(ST_MakePoint($25, $26), 4326)"
-            extra_params = [parsed["lon"], parsed["lat"]]
-        else:
-            geom_expr = "NULL::geometry"
-            extra_params = []
+        geom_expr = "ST_SetSRID(ST_MakePoint($27, $28), 4326)" if lat and lon else "NULL"
 
-        import json
-        raw_json = json.dumps(raw)
-
-        if extra_params:
-            result = await conn.execute(
-                f"""
-                INSERT INTO permits (
-                    permit_nbr, primary_address, zip_code, council_district,
-                    pin_nbr, apn, zone, area_planning_commission,
-                    community_plan_area, neighborhood_council, census_tract,
-                    permit_group, permit_type, permit_sub_type, use_code,
-                    use_desc, submitted_date, issue_date, status_desc,
-                    status_date, valuation, square_footage, construction,
-                    work_desc, contractor_name, ev, solar, lat, lon,
-                    geom, raw_data, updated_at
-                ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                    $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                    $21, $22, $23, $24, $25, $26, $27, $28, $29,
-                    ST_SetSRID(ST_MakePoint($30, $31), 4326), $32::jsonb, NOW()
-                )
-                ON CONFLICT (permit_nbr) DO UPDATE SET
-                    primary_address = EXCLUDED.primary_address,
-                    zip_code = EXCLUDED.zip_code,
-                    council_district = EXCLUDED.council_district,
-                    status_desc = EXCLUDED.status_desc,
-                    status_date = EXCLUDED.status_date,
-                    valuation = EXCLUDED.valuation,
-                    work_desc = EXCLUDED.work_desc,
-                    raw_data = EXCLUDED.raw_data,
-                    updated_at = NOW()
-                """,
-                parsed["permit_nbr"], parsed["primary_address"], parsed["zip_code"],
-                parsed["council_district"], parsed["pin_nbr"], parsed["apn"],
-                parsed["zone"], parsed["area_planning_commission"],
-                parsed["community_plan_area"], parsed["neighborhood_council"],
-                parsed["census_tract"], parsed["permit_group"], parsed["permit_type"],
-                parsed["permit_sub_type"], parsed["use_code"], parsed["use_desc"],
-                parsed["submitted_date"], parsed["issue_date"], parsed["status_desc"],
-                parsed["status_date"], parsed["valuation"], parsed["square_footage"],
-                parsed["construction"], parsed["work_desc"], parsed["contractor_name"],
-                parsed["ev"], parsed["solar"], parsed["lat"], parsed["lon"],
-                parsed["lon"], parsed["lat"], raw_json,
+        sql = f"""
+            INSERT INTO permits (
+                permit_nbr, primary_address, zip_code, council_district, pin_nbr,
+                apn, zone, area_planning_commission, community_plan_area,
+                neighborhood_council, census_tract, permit_group, permit_type,
+                permit_sub_type, use_code, use_desc, submitted_date, issue_date,
+                status_desc, status_date, valuation, square_footage, construction,
+                work_desc, ev, solar, lat, lon, geom, raw_data
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+                $27, $28, {geom_expr}, $29
             )
-        else:
-            result = await conn.execute(
-                """
-                INSERT INTO permits (
-                    permit_nbr, primary_address, zip_code, council_district,
-                    pin_nbr, apn, zone, area_planning_commission,
-                    community_plan_area, neighborhood_council, census_tract,
-                    permit_group, permit_type, permit_sub_type, use_code,
-                    use_desc, submitted_date, issue_date, status_desc,
-                    status_date, valuation, square_footage, construction,
-                    work_desc, contractor_name, ev, solar, lat, lon,
-                    geom, raw_data, updated_at
-                ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                    $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                    $21, $22, $23, $24, $25, $26, $27, $28, $29,
-                    NULL, $30::jsonb, NOW()
-                )
-                ON CONFLICT (permit_nbr) DO UPDATE SET
-                    primary_address = EXCLUDED.primary_address,
-                    zip_code = EXCLUDED.zip_code,
-                    council_district = EXCLUDED.council_district,
-                    status_desc = EXCLUDED.status_desc,
-                    status_date = EXCLUDED.status_date,
-                    valuation = EXCLUDED.valuation,
-                    work_desc = EXCLUDED.work_desc,
-                    raw_data = EXCLUDED.raw_data,
-                    updated_at = NOW()
-                """,
-                parsed["permit_nbr"], parsed["primary_address"], parsed["zip_code"],
-                parsed["council_district"], parsed["pin_nbr"], parsed["apn"],
-                parsed["zone"], parsed["area_planning_commission"],
-                parsed["community_plan_area"], parsed["neighborhood_council"],
-                parsed["census_tract"], parsed["permit_group"], parsed["permit_type"],
-                parsed["permit_sub_type"], parsed["use_code"], parsed["use_desc"],
-                parsed["submitted_date"], parsed["issue_date"], parsed["status_desc"],
-                parsed["status_date"], parsed["valuation"], parsed["square_footage"],
-                parsed["construction"], parsed["work_desc"], parsed["contractor_name"],
-                parsed["ev"], parsed["solar"], parsed["lat"], parsed["lon"],
-                raw_json,
-            )
+            ON CONFLICT (permit_nbr) DO UPDATE SET
+                status_desc = EXCLUDED.status_desc,
+                status_date = EXCLUDED.status_date,
+                valuation = EXCLUDED.valuation,
+                updated_at = NOW()
+            RETURNING (xmax = 0) as is_insert
+        """
 
-        if "INSERT" in result:
-            inserted += 1
-        else:
-            updated += 1
+        try:
+            result = await conn.fetchval(
+                sql,
+                p.get("permit_nbr", ""),
+                p.get("primary_address"),
+                p.get("zip_code"),
+                p.get("cd"),
+                p.get("pin_nbr"),
+                p.get("apn"),
+                p.get("zone"),
+                p.get("apc"),
+                p.get("cpa"),
+                p.get("cnc"),
+                p.get("ct"),
+                p.get("permit_group"),
+                p.get("permit_type"),
+                p.get("permit_sub_type"),
+                p.get("use_code"),
+                p.get("use_desc"),
+                _timestamp(p.get("submitted_date")),
+                _timestamp(p.get("issue_date")),
+                p.get("status_desc"),
+                _timestamp(p.get("status_date")),
+                _float(p.get("valuation")),
+                _float(p.get("square_footage")),
+                p.get("construction"),
+                p.get("work_desc"),
+                p.get("ev", "N") == "Y",
+                p.get("solar", "N") == "Y",
+                lat,
+                lon,
+                json.dumps(p),
+            )
+            if result:
+                inserted += 1
+            else:
+                updated += 1
+        except Exception as e:
+            logger.warning(f"Error upserting permit {p.get('permit_nbr')}: {e}")
 
     return inserted, updated
 
 
+async def sync_dataset(conn: asyncpg.Connection, client: httpx.AsyncClient, dataset_id: str, incremental: bool = True):
+    """Sync a single Socrata dataset."""
+    logger.info(f"Syncing dataset {dataset_id} (incremental={incremental})")
+
+    where = ""
+    if incremental:
+        # Get last sync date
+        last_date = await conn.fetchval(
+            "SELECT MAX(issue_date) FROM permits WHERE raw_data->>'_dataset' = $1",
+            dataset_id,
+        )
+        if last_date:
+            where = f"issue_date > '{(last_date - timedelta(days=2)).strftime('%Y-%m-%dT00:00:00')}'"
+            logger.info(f"Incremental sync from {last_date}")
+
+    total_inserted = 0
+    total_updated = 0
+    offset = 0
+
+    while True:
+        permits = await fetch_permits(client, dataset_id, offset=offset, where=where)
+        if not permits:
+            break
+
+        # Tag with dataset source
+        for p in permits:
+            p["_dataset"] = dataset_id
+
+        ins, upd = await upsert_permits(conn, permits)
+        total_inserted += ins
+        total_updated += upd
+        offset += PAGE_SIZE
+        logger.info(f"  Page {offset // PAGE_SIZE}: {len(permits)} fetched, {ins} inserted, {upd} updated")
+
+        if len(permits) < PAGE_SIZE:
+            break
+
+    logger.info(f"Dataset {dataset_id} complete: {total_inserted} inserted, {total_updated} updated")
+    return total_inserted, total_updated
+
+
 async def main():
-    logger.info("Starting permit sync pipeline")
+    if not DATABASE_URL:
+        logger.error("DATABASE_URL not set")
+        sys.exit(1)
+
     conn = await asyncpg.connect(DATABASE_URL)
+    client = httpx.AsyncClient()
+
+    # Record pipeline run
+    run_id = await conn.fetchval(
+        "INSERT INTO pipeline_runs (pipeline, status) VALUES ('sync_permits', 'running') RETURNING id"
+    )
 
     try:
-        run_id = await create_pipeline_run(conn)
-        last_sync = await get_last_sync_date(conn)
-        logger.info(f"Last sync: {last_sync or 'never (full sync)'}")
+        total_ins = 0
+        total_upd = 0
 
-        total_processed = 0
-        total_inserted = 0
-        total_updated = 0
+        for name, dataset_id in DATASETS.items():
+            logger.info(f"=== Syncing {name} dataset ({dataset_id}) ===")
+            ins, upd = await sync_dataset(conn, client, dataset_id)
+            total_ins += ins
+            total_upd += upd
 
-        async with httpx.AsyncClient() as client:
-            for label, dataset_id in DATASETS.items():
-                logger.info(f"Syncing {label} dataset: {dataset_id}")
-                records = await fetch_dataset(client, dataset_id, last_sync)
-                logger.info(f"Fetched {len(records)} {label} records")
-
-                if records:
-                    ins, upd = await upsert_permits(conn, records)
-                    total_processed += len(records)
-                    total_inserted += ins
-                    total_updated += upd
-                    logger.info(f"{label}: inserted={ins}, updated={upd}")
-
-        await update_pipeline_run(
-            conn, run_id, "completed", total_processed, total_inserted, total_updated
+        await conn.execute(
+            """UPDATE pipeline_runs
+               SET completed_at = NOW(), records_inserted = $1, records_updated = $2,
+                   records_processed = $1 + $2, status = 'success'
+               WHERE id = $3""",
+            total_ins, total_upd, run_id,
         )
-        logger.info(
-            f"Pipeline completed: processed={total_processed}, "
-            f"inserted={total_inserted}, updated={total_updated}"
-        )
+        logger.info(f"Pipeline complete: {total_ins} inserted, {total_upd} updated")
 
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
-        await update_pipeline_run(conn, run_id, "failed", error=str(e))
+        await conn.execute(
+            "UPDATE pipeline_runs SET completed_at = NOW(), status = 'failed', error_message = $1 WHERE id = $2",
+            str(e), run_id,
+        )
         raise
     finally:
+        await client.aclose()
         await conn.close()
+
+
+def _float(v):
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def _timestamp(v):
+    if not v:
+        return None
+    try:
+        return datetime.fromisoformat(v.replace("T", " ").split(".")[0])
+    except (ValueError, AttributeError):
+        return None
 
 
 if __name__ == "__main__":

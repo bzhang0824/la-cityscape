@@ -1,37 +1,67 @@
+"""Search endpoint — cross-entity search across addresses, permits, and planning cases."""
+
 from fastapi import APIRouter, Query
-from backend.api.database import get_pool
+from ..database import get_connection
 
 router = APIRouter()
 
 
+def _serialize(v):
+    from datetime import datetime, date
+    from decimal import Decimal
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return float(v)
+    return v
+
+
 @router.get("")
-async def search(q: str = Query(..., min_length=2)):
-    pool = await get_pool()
-    query_pattern = f"%{q.upper()}%"
+async def search(q: str = Query(..., min_length=2, description="Search query"), limit: int = Query(20, ge=1, le=100)):
+    """Search across permits, planning cases, and places by address or keyword."""
+    pattern = f"%{q}%"
 
-    async with pool.acquire() as conn:
+    async with get_connection() as conn:
         permits = await conn.fetch(
-            "SELECT id, permit_nbr, primary_address, permit_type, issue_date, valuation "
-            "FROM permits WHERE UPPER(primary_address) LIKE $1 "
-            "OR UPPER(permit_nbr) LIKE $1 "
-            "ORDER BY issue_date DESC NULLS LAST LIMIT 10",
-            query_pattern,
+            """SELECT 'permit' as type, permit_nbr as id, primary_address as title,
+                      permit_type || ' — ' || COALESCE(use_desc, '') as subtitle,
+                      issue_date, lat, lon
+               FROM permits
+               WHERE primary_address ILIKE $1 OR work_desc ILIKE $1
+               ORDER BY issue_date DESC NULLS LAST
+               LIMIT $2""",
+            pattern,
+            limit,
         )
-        planning = await conn.fetch(
-            "SELECT id, case_number, address, case_type, filing_date "
-            "FROM planning_cases WHERE UPPER(address) LIKE $1 "
-            "OR UPPER(case_number) LIKE $1 "
-            "ORDER BY filing_date DESC NULLS LAST LIMIT 10",
-            query_pattern,
+        cases = await conn.fetch(
+            """SELECT 'planning_case' as type, case_number as id, address as title,
+                      case_type || ' — ' || COALESCE(LEFT(project_description, 100), '') as subtitle,
+                      filing_date as issue_date, lat, lon
+               FROM planning_cases
+               WHERE address ILIKE $1 OR project_description ILIKE $1
+               ORDER BY filing_date DESC NULLS LAST
+               LIMIT $2""",
+            pattern,
+            limit,
         )
-        places_rows = await conn.fetch(
-            "SELECT id, name, place_type, slug FROM places "
-            "WHERE UPPER(name) LIKE $1 LIMIT 10",
-            query_pattern,
+        place_rows = await conn.fetch(
+            """SELECT 'place' as type, slug as id, name as title,
+                      place_type as subtitle, NULL::timestamp as issue_date,
+                      NULL::float as lat, NULL::float as lon
+               FROM places
+               WHERE name ILIKE $1
+               ORDER BY name
+               LIMIT $2""",
+            pattern,
+            limit,
         )
 
-    return {
-        "permits": [dict(r) for r in permits],
-        "planning_cases": [dict(r) for r in planning],
-        "places": [dict(r) for r in places_rows],
-    }
+    results = []
+    for rows in [permits, cases, place_rows]:
+        for r in rows:
+            d = dict(r)
+            for k, v in d.items():
+                d[k] = _serialize(v)
+            results.append(d)
+
+    return {"results": results, "query": q}
