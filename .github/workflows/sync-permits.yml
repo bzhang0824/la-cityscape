@@ -1,0 +1,26 @@
+name: Sync Building Permits
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # Daily at 4am UTC / 9pm PDT
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run permit sync
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+        run: python -m backend.pipelines.permits.sync_permits
