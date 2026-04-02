@@ -23,5 +23,5 @@ jobs:
 
       - name: Sync planning cases
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: python -m backend.pipelines.planning.sync_planning

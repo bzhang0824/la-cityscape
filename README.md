@@ -30,7 +30,9 @@ la-cityscape/
 │   ├── src/
 │   │   ├── app/        # 7 routes (/, /permits, /planning, /places, /pricing, etc.)
 │   │   ├── components/ # Map, table, filter, chart components
-│   │   └── lib/        # Mock data, types, utilities
+│   │   └── lib/
+│   │       ├── supabase.ts  # Supabase client + usage examples
+│   │       └── mock-data.ts # Development mock data
 │   └── ...
 └── .github/workflows/  # GitHub Actions for nightly data sync
 ```
@@ -45,9 +47,9 @@ la-cityscape/
 
 ## Tech Stack
 
-**Backend:** Python 3.11, FastAPI, asyncpg, PostgreSQL + PostGIS, httpx  
-**Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Leaflet.js, Recharts  
-**Infrastructure:** Neon PostgreSQL, GitHub Actions (cron pipelines), Vercel (frontend)
+**Backend:** Python 3.11, FastAPI, asyncpg, Supabase (PostgreSQL + PostGIS), httpx
+**Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Leaflet.js, Recharts, @supabase/supabase-js
+**Infrastructure:** Supabase (database + auth + storage), GitHub Actions (cron pipelines), Vercel (frontend)
 
 ## Getting Started
 
@@ -55,57 +57,59 @@ la-cityscape/
 
 - Python 3.11+
 - Node.js 18+
-- PostgreSQL 15+ with PostGIS extension
-- A [Neon](https://neon.tech) database (or any PostgreSQL instance)
+- A [Supabase](https://supabase.com) account (free tier works)
 
-### Database Setup
+### 1. Supabase Setup
 
-1. Create a Neon project and database
-2. Enable PostGIS:
-   ```sql
-   CREATE EXTENSION IF NOT EXISTS postgis;
-   ```
-3. Run the schema:
-   ```bash
-   psql $DATABASE_URL -f backend/schema.sql
-   ```
+1. Go to [supabase.com](https://supabase.com) and create a new project
+2. Enable PostGIS: Dashboard > Database > Extensions > search "postgis" > Enable
+3. Run the schema: Dashboard > SQL Editor > paste contents of `backend/schema.sql` > Run
+4. Copy your credentials from Project Settings:
+   - **Database URL**: Settings > Database > Connection string > URI (use Transaction pooler, port 6543)
+   - **API URL**: Settings > API > Project URL
+   - **Anon Key**: Settings > API > `anon` `public` key
 
-### Backend
+### 2. Backend
 
 ```bash
 cd backend
 pip install -r requirements.txt
 
-# Set environment variables
-export DATABASE_URL="postgresql://user:pass@host/dbname"
+# Create .env from the example
+cp .env.example .env
+# Fill in your Supabase DATABASE_URL
 
 # Run the API
 uvicorn api.main:app --reload --port 8000
 ```
 
-API docs available at `http://localhost:8000/docs`
+API docs at `http://localhost:8000/docs`
 
-### Frontend
+### 3. Frontend
 
 ```bash
 cd frontend
 npm install
 
-# For development (uses mock data by default)
+# Create .env.local from the example
+cp .env.local.example .env.local
+# Fill in NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+# Development (uses mock data by default)
 npm run dev
 
 # Production build
-npm run build
-npm start
+npm run build && npm start
 ```
 
-The frontend runs at `http://localhost:3000` with mock data for all LA neighborhoods. Connect to the live API by setting `NEXT_PUBLIC_API_URL`.
-
-### Data Pipelines
+### 4. Data Pipelines
 
 Run manually or via GitHub Actions:
 
 ```bash
+# Set DATABASE_URL in your environment first
+export DATABASE_URL="postgresql://postgres.[ref]:[pass]@aws-0-us-west-1.pooler.supabase.com:6543/postgres"
+
 # Sync permits from LADBS Socrata
 python -m backend.pipelines.permits.sync_permits
 
@@ -113,20 +117,14 @@ python -m backend.pipelines.permits.sync_permits
 python -m backend.pipelines.planning.sync_planning
 ```
 
-### Environment Variables
+### 5. GitHub Actions (Automated Nightly Sync)
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DATABASE_URL` | PostgreSQL connection string | Yes (backend) |
-| `NEXT_PUBLIC_API_URL` | Backend API URL | No (defaults to mock data) |
+Add these secrets in your repo Settings > Secrets and variables > Actions:
 
-### GitHub Actions Secrets
-
-For automated nightly sync, add these repository secrets:
-
-| Secret | Description |
-|--------|-------------|
-| `NEON_DATABASE_URL` | Full Neon PostgreSQL connection string |
+| Secret | Value | Where to find it |
+|--------|-------|------------------|
+| `SUPABASE_DB_URL` | PostgreSQL connection string | Supabase > Settings > Database > URI |
+| `SOCRATA_APP_TOKEN` | Socrata API token (optional) | [data.lacity.org](https://data.lacity.org) developer settings |
 
 ## Features
 
@@ -136,14 +134,16 @@ For automated nightly sync, add these repository secrets:
 - **Property Lookup** — Full permit and planning history for any LA address
 - **Interactive Maps** — Leaflet.js with dark CARTO tiles, clustered markers, GeoJSON overlays
 - **Real-time Data** — Nightly sync from LADBS Socrata and LA City Planning APIs
+- **Supabase Auth** — Ready for user accounts and Pro subscription gating (coming soon)
 
 ## Roadmap
 
+- [ ] User auth with Supabase (Google, email/password)
+- [ ] Pro subscription tier with Stripe + Supabase RLS
 - [ ] Zoning overlay maps (ZIMAS integration)
 - [ ] Construction timeline tracking (inspection data)
 - [ ] Developer/contractor profiles and rankings
 - [ ] Email alerts for new permits in saved areas
-- [ ] Pro subscription tier with API access
 - [ ] Census and demographic data overlays
 - [ ] Historical permit trend analysis
 

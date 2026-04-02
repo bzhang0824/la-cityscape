@@ -5,7 +5,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://localhost:5432/lacityscape"
+    # Supabase PostgreSQL connection string
+    database_url: str = "postgresql://localhost:5432/postgres"
+    # Supabase API credentials (for server-side Supabase client if needed)
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
     socrata_app_token: str = ""
     cors_origins: list[str] = [
         "http://localhost:3000",
